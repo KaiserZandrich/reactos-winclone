@@ -107,6 +107,25 @@
 #define IDS_BOOTLOADER_VBRONLY      5304    // ""
 
 
+/* Progress Strings */
+/////// #define IDS_PREPARE_PARTITIONS      5308
+/////// #define IDS_PREPARE_FILES           5309
+/////// #define IDS_COPYING_FILES           5310
+
+#define IDS_CREATE_REGISTRY         5311
+#define IDS_UPDATE_REGISTRY         5312
+
+#define IDS_REG_DONE                    5320
+#define IDS_REG_REGHIVEUPDATE           5321
+#define IDS_REG_IMPORTFILE              5322
+#define IDS_REG_DISPLAYSETTINGSUPDATE   5323
+#define IDS_REG_LOCALESETTINGSUPDATE    5324
+#define IDS_REG_ADDKBLAYOUTS            5325
+#define IDS_REG_KEYBOARDSETTINGSUPDATE  5326
+#define IDS_REG_CODEPAGEINFOUPDATE      5327
+#define IDS_REG_UNKNOWN                 5328
+
+
 /* Error Strings */
 #define IDS_ERROR_INVALID_INSTALLDIR_CHAR_TITLE 5400
 #define IDS_ERROR_INVALID_INSTALLDIR_CHAR       5401
