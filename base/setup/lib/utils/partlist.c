@@ -1879,6 +1879,7 @@ CreatePartitionList(VOID)
     InitializeListHead(&List->DiskListHead);
     InitializeListHead(&List->BiosDiskListHead);
     InitializeListHead(&List->VolumesList);
+    InitializeListHead(&List->PendingUnmountVolumesList);
 
     /*
      * Enumerate the disks seen by the BIOS; this will be used later
@@ -1945,6 +1946,7 @@ DestroyPartitionList(
     PDISKENTRY DiskEntry;
     PBIOSDISKENTRY BiosDiskEntry;
     PPARTENTRY PartEntry;
+    PVOLENTRY VolumeEntry;
     PLIST_ENTRY Entry;
 
     /* Release disk and partition info */
@@ -1986,6 +1988,14 @@ DestroyPartitionList(
         Entry = RemoveHeadList(&List->BiosDiskListHead);
         BiosDiskEntry = CONTAINING_RECORD(Entry, BIOSDISKENTRY, ListEntry);
         RtlFreeHeap(ProcessHeap, 0, BiosDiskEntry);
+    }
+
+    /* Release the pending volumes info */
+    while (!IsListEmpty(&List->PendingUnmountVolumesList))
+    {
+        Entry = RemoveHeadList(&List->PendingUnmountVolumesList);
+        VolumeEntry = CONTAINING_RECORD(Entry, VOLENTRY, ListEntry);
+        RtlFreeHeap(ProcessHeap, 0, VolumeEntry);
     }
 
     /* Release list head */
@@ -2832,34 +2842,42 @@ DismountPartition(
     _In_ PPARTLIST List,
     _In_ PPARTENTRY PartEntry)
 {
-    NTSTATUS Status;
     PVOLENTRY Volume = PartEntry->Volume;
 
     ASSERT(PartEntry->DiskEntry->PartList == List);
 
-    /* Check whether the partition is valid and was mounted by the system */
-    if (!PartEntry->IsPartitioned ||
-        IsContainerPartition(PartEntry->PartitionType)   ||
-        !IsRecognizedPartition(PartEntry->PartitionType) ||
-        !Volume || Volume->FormatState == UnknownFormat  ||
+    if (Volume)
+    {
+        /* Check whether the partition is valid and was mounted by the system */
+        ASSERT(Volume->PartEntry == PartEntry);
+        ASSERT(PartEntry->IsPartitioned && PartEntry->PartitionNumber != 0);
+        ASSERT(PartEntry->PartitionType != PARTITION_ENTRY_UNUSED);
+        ASSERT(!IsContainerPartition(PartEntry->PartitionType));
+
+        /* Dismount the basic volume: unlink the volume
+         * from the list of existing ones */
+        PartEntry->Volume = NULL;
+        Volume->PartEntry = NULL;
+        RemoveEntryList(&Volume->ListEntry);
+
         // NOTE: If FormatState == Unformatted but *FileSystem != 0 this means
         // it has been usually mounted with RawFS and thus needs to be dismounted.
-        PartEntry->PartitionNumber == 0)
+        if (Volume->FormatState == UnknownFormat)
+        {
+            RtlFreeHeap(ProcessHeap, 0, Volume);
+            Volume = NULL;
+        }
+    }
+    if (!Volume)
     {
         /* The partition is not mounted, so just return success */
         return STATUS_SUCCESS;
     }
 
-    ASSERT(PartEntry->PartitionType != PARTITION_ENTRY_UNUSED);
-    ASSERT(Volume->PartEntry == PartEntry);
-
-    /* Unlink the basic volume from the volumes list and dismount it */
-    PartEntry->Volume = NULL;
-    Volume->PartEntry = NULL;
-    RemoveEntryList(&Volume->ListEntry);
-    Status = DismountVolume(&Volume->Info);
-    RtlFreeHeap(ProcessHeap, 0, Volume);
-    return Status;
+    /* Dismount the basic volume: link the volume into the list of volumes to unmount */
+    // return DismountVolume(&Volume->Info); // For when immediate operation mode is supported.
+    InsertTailList(&List->PendingUnmountVolumesList, &Volume->ListEntry);
+    return STATUS_SUCCESS;
 }
 
 BOOLEAN
@@ -3616,9 +3634,26 @@ WritePartitionsToDisk(
     PLIST_ENTRY Entry;
     PDISKENTRY DiskEntry;
 
-    if (List == NULL)
+    if (!List)
         return TRUE;
 
+    /* Unmount all pending volumes */
+    Status = STATUS_SUCCESS;
+    while (!IsListEmpty(&List->PendingUnmountVolumesList))
+    {
+        PVOLENTRY Volume;
+        NTSTATUS UnmountStatus;
+        Entry = RemoveHeadList(&List->PendingUnmountVolumesList);
+        Volume = CONTAINING_RECORD(Entry, VOLENTRY, ListEntry);
+        UnmountStatus = DismountVolume(&Volume->Info);
+        if (!NT_SUCCESS(UnmountStatus))
+            Status = UnmountStatus;
+        RtlFreeHeap(ProcessHeap, 0, Volume);
+    }
+    if (!NT_SUCCESS(Status))
+        return FALSE;
+
+    /* Write all the partitions to all the disks */
     for (Entry = List->DiskListHead.Flink;
          Entry != &List->DiskListHead;
          Entry = Entry->Flink)
