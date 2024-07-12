@@ -8,10 +8,12 @@
 
 #include "precomp.h"
 #include <ntddscsi.h>
+#include <mountdev.h> // For IOCTL_MOUNTDEV_QUERY_DEVICE_NAME
 
 #include "partlist.h"
 #include "volutil.h"
 #include "fsrec.h" // For FileSystemToMBRPartitionType()
+#include "devutils.h"
 
 #define NDEBUG
 #include <debug.h>
@@ -823,16 +825,114 @@ InitializePartitionEntry(
     return TRUE;
 }
 
+static
+VOID
+InitPartitionDeviceName(
+    _Inout_ PPARTENTRY PartEntry)
+{
+    NTSTATUS Status;
+
+    /* Ignore if this is a container partition */
+    if (IsContainerPartition(PartEntry->PartitionType))
+        return;
+    ASSERT(PartEntry->IsPartitioned && PartEntry->PartitionNumber != 0);
+
+    /* Make a device name for the partition */
+    Status = RtlStringCchPrintfW(PartEntry->DeviceName,
+                                 _countof(PartEntry->DeviceName),
+                                 L"\\Device\\Harddisk%lu\\Partition%lu",
+                                 PartEntry->DiskEntry->DiskNumber,
+                                 PartEntry->PartitionNumber);
+    ASSERT(NT_SUCCESS(Status));
+}
+
+static
+NTSTATUS
+InitVolumeDeviceName(
+    _Inout_ PVOLENTRY Volume,
+    _In_opt_ PCWSTR AltDeviceName)
+{
+    NTSTATUS Status;
+    IO_STATUS_BLOCK IoStatusBlock;
+    HANDLE VolumeHandle;
+    /*
+     * This variable is used to store the device name for
+     * the output buffer to IOCTL_MOUNTDEV_QUERY_DEVICE_NAME.
+     * It's based on MOUNTDEV_NAME (mountmgr.h).
+     * Doing it this way prevents memory allocation.
+     * The device name won't be longer.
+     */
+    struct
+    {
+        USHORT NameLength;
+        WCHAR Name[256];
+    } DeviceName;
+
+    /* If we already have a volume device name, do nothing more */
+    if (*Volume->Info.DeviceName)
+        return STATUS_SUCCESS;
+
+    if (!AltDeviceName)
+    {
+        PPARTENTRY PartEntry;
+        PartEntry = Volume->PartEntry;
+        ASSERT(PartEntry);
+        ASSERT(PartEntry->IsPartitioned && PartEntry->PartitionNumber != 0);
+        AltDeviceName = PartEntry->DeviceName;
+    }
+
+    /* Make a temporary device name for the volume */
+    Status = RtlStringCchCopyW(Volume->Info.DeviceName,
+                               _countof(Volume->Info.DeviceName),
+                               AltDeviceName);
+    ASSERT(NT_SUCCESS(Status));
+
+    /* Try to open the volume (if it is valid, this will also mount it) */
+    Status = pOpenDevice(Volume->Info.DeviceName, &VolumeHandle);
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("pOpenDevice() failed, Status 0x%08lx\n", Status);
+        return Status;
+    }
+
+    /* Retrieve the non-persistent volume device name */
+    Status = NtDeviceIoControlFile(VolumeHandle,
+                                   NULL, NULL, NULL,
+                                   &IoStatusBlock,
+                                   IOCTL_MOUNTDEV_QUERY_DEVICE_NAME,
+                                   NULL, 0,
+                                   &DeviceName, sizeof(DeviceName));
+    NtClose(VolumeHandle);
+
+    // NOTE: If a memory allocation were needed, Status would be
+    // equal to STATUS_BUFFER_OVERFLOW, and one would allocate
+    // a buffer of size
+    //     FIELD_OFFSET(MOUNTDEV_NAME, Name[0]) + DeviceName.NameLength
+    // before calling the IOCTL again on the new buffer and size.
+
+    if (!NT_SUCCESS(Status))
+    {
+        DPRINT1("IOCTL_MOUNTDEV_QUERY_DEVICE_NAME failed, Status 0x%08lx\n", Status);
+        return Status;
+    }
+
+    /* Copy the volume device name */
+    Status = RtlStringCchCopyNW(Volume->Info.DeviceName,
+                                _countof(Volume->Info.DeviceName),
+                                DeviceName.Name,
+                                DeviceName.NameLength / sizeof(WCHAR));
+    ASSERT(NT_SUCCESS(Status));
+    return Status;
+}
 
 static
 PVOLENTRY
 InitVolume(
-    _In_ PPARTENTRY PartEntry)
+    _In_ PPARTLIST List,
+    _In_opt_ PPARTENTRY PartEntry)
 {
-    NTSTATUS Status;
     PVOLENTRY Volume;
 
-    /* No volume initially */
     Volume = RtlAllocateHeap(ProcessHeap,
                              HEAP_ZERO_MEMORY,
                              sizeof(VOLENTRY));
@@ -841,15 +941,9 @@ InitVolume(
 
     /* Reset some volume information */
 
-    /* Make a device name for the volume */
-    // TODO: Ask instead the MOUNTMGR for the name.
-    Status = RtlStringCchPrintfW(Volume->Info.DeviceName,
-                                 _countof(Volume->Info.DeviceName),
-                                 L"\\Device\\Harddisk%lu\\Partition%lu",
-                                 PartEntry->DiskEntry->DiskNumber,
-                                 PartEntry->PartitionNumber);
-    ASSERT(NT_SUCCESS(Status));
-    // TODO: Store also in VolumeName?
+    /* No device name for now */
+    Volume->Info.DeviceName[0] = L'\0';
+    // Volume->Info.VolumeName[0] = L'\0';
 
     /* Initialize the volume letter and label */
     Volume->Info.DriveLetter = L'\0';
@@ -861,9 +955,12 @@ InitVolume(
     Volume->NeedsCheck = FALSE;
     Volume->New = TRUE;
 
-    /**/Volume->PartEntry = PartEntry;/**/
-    InsertTailList(&PartEntry->DiskEntry->PartList->VolumesList,
-                   &Volume->ListEntry);
+    if (PartEntry)
+    {
+        ASSERT(PartEntry->DiskEntry->PartList == List);
+        Volume->PartEntry = PartEntry;
+    }
+    InsertTailList(&List->VolumesList, &Volume->ListEntry);
     return Volume;
 }
 
@@ -905,6 +1002,7 @@ AddPartitionToDisk(
     PartEntry->OnDiskPartitionNumber = PartitionInfo->PartitionNumber;
     PartEntry->PartitionNumber = PartitionInfo->PartitionNumber;
     PartEntry->PartitionIndex = PartitionIndex;
+    InitPartitionDeviceName(PartEntry);
 
     /* No volume initially */
     PartEntry->Volume = NULL;
@@ -917,19 +1015,31 @@ AddPartitionToDisk(
     else if (IsRecognizedPartition(PartEntry->PartitionType) || // PartitionInfo->RecognizedPartition
              IsOEMPartition(PartEntry->PartitionType))
     {
+        PVOLENTRY Volume;
         NTSTATUS Status;
 
         ASSERT(PartEntry->PartitionNumber != 0);
 
         /* The PARTMGR should have notified the MOUNTMGR that a volume
          * associated with this partition had to be created */
-        PartEntry->Volume = InitVolume(PartEntry);
-        ASSERT(PartEntry->Volume);
-        PartEntry->Volume->New = FALSE;
+        Volume = InitVolume(DiskEntry->PartList, PartEntry);
+        if (!Volume)
+        {
+            DPRINT1("Couldn't allocate a volume for device '%S'\n",
+                    PartEntry->DeviceName);
+            goto SkipVolume;
+        }
+        PartEntry->Volume = Volume;
+        InitVolumeDeviceName(Volume, NULL);
+        Volume->New = FALSE;
 
         /* Attach and mount the volume */
-        Status = MountVolume(&PartEntry->Volume->Info, PartEntry->PartitionType);
-        UNREFERENCED_PARAMETER(Status); // FIXME
+        Status = MountVolume(&Volume->Info, PartEntry->PartitionType);
+        if (!NT_SUCCESS(Status))
+        {
+            DPRINT1("Failed to mount volume '%S', Status 0x%08lx\n",
+                    Volume->Info.DeviceName, Status);
+        }
 
         //
         // FIXME: TEMP Backward-compatibility: Set the FormatState
@@ -944,12 +1054,13 @@ AddPartitionToDisk(
          * considered as having an unknown format (it may or may not be
          * formatted) and the FileSystem value has been emptied.
          */
-        if (IsUnknown(&PartEntry->Volume->Info)) // (!*...Info.FileSystem)
-            PartEntry->Volume->FormatState = UnknownFormat;
-        else if (IsUnformatted(&PartEntry->Volume->Info)) // (_wcsicmp(...Info.FileSystem, L"RAW") == 0)
-            PartEntry->Volume->FormatState = Unformatted;
+        if (IsUnknown(&Volume->Info)) // (!*...Info.FileSystem)
+            Volume->FormatState = UnknownFormat;
+        else if (IsUnformatted(&Volume->Info)) // (_wcsicmp(...Info.FileSystem, L"RAW") == 0)
+            Volume->FormatState = Unformatted;
         else // !IsUnknown && !IsUnformatted == IsFormatted
-            PartEntry->Volume->FormatState = Formatted;
+            Volume->FormatState = Formatted;
+SkipVolume:;
     }
     else
     {
@@ -2791,6 +2902,7 @@ CreatePartition(
 {
     ERROR_NUMBER Error;
     BOOLEAN isContainer = IsContainerPartition((UCHAR)PartitionInfo);
+    PDISKENTRY DiskEntry;
     PCSTR mainType = "Primary";
 
     if (isContainer)
@@ -2820,6 +2932,9 @@ CreatePartition(
     if (!InitializePartitionEntry(PartEntry, SizeBytes, PartitionInfo))
         return FALSE;
 
+    DiskEntry = PartEntry->DiskEntry;
+    UpdateDiskLayout(DiskEntry);
+
     ASSERT(!PartEntry->Volume);
     if (!isContainer)
     {
@@ -2827,11 +2942,10 @@ CreatePartition(
          * volume entry. When the partition will actually be written onto
          * the disk, the PARTMGR will notify the MOUNTMGR that a volume
          * associated with this partition has to be created. */
-        PartEntry->Volume = InitVolume(PartEntry);
+        PartEntry->Volume = InitVolume(DiskEntry->PartList, PartEntry);
         ASSERT(PartEntry->Volume);
     }
 
-    UpdateDiskLayout(PartEntry->DiskEntry);
     AssignDriveLetters(List);
 
     return TRUE;
@@ -2996,6 +3110,7 @@ DeletePartition(
         PartEntry->PartitionNumber = 0;
         // PartEntry->PartitionIndex = 0;
         PartEntry->BootIndicator = FALSE;
+        PartEntry->DeviceName[0] = L'\0';
 
         if (PartEntry->Volume)
         {
@@ -3573,7 +3688,7 @@ WritePartitions(
     DumpPartitionTable(DiskEntry);
 #endif
 
-    /* Update the partition numbers */
+    /* Update the partition numbers and device names */
 
     /* Update the primary partition table */
     for (ListEntry = DiskEntry->PrimaryPartListHead.Flink;
@@ -3581,14 +3696,25 @@ WritePartitions(
          ListEntry = ListEntry->Flink)
     {
         PartEntry = CONTAINING_RECORD(ListEntry, PARTENTRY, ListEntry);
+        if (!PartEntry->IsPartitioned)
+            continue;
+        ASSERT(PartEntry->PartitionType != PARTITION_ENTRY_UNUSED);
 
-        if (PartEntry->IsPartitioned)
+        /*
+         * Initialize its device partition number and its device name
+         * only if the partition was new. Note that the partition number
+         * should not change if this partition has not been deleted
+         * during repartitioning.
+         * FIXME: hbelusca: Our PartMgr currently seems to return modified
+         * numbers in the layout, this needs to be investigated and fixed.
+         */
+        if (PartEntry->New)
         {
-            ASSERT(PartEntry->PartitionType != PARTITION_ENTRY_UNUSED);
-            PartEntry->New = FALSE;
             PartitionInfo = &DiskEntry->LayoutBuffer->PartitionEntry[PartEntry->PartitionIndex];
             PartEntry->PartitionNumber = PartitionInfo->PartitionNumber;
+            InitPartitionDeviceName(PartEntry);
         }
+        PartEntry->New = FALSE;
     }
 
     /* Update the logical partition table */
@@ -3597,14 +3723,18 @@ WritePartitions(
          ListEntry = ListEntry->Flink)
     {
         PartEntry = CONTAINING_RECORD(ListEntry, PARTENTRY, ListEntry);
+        if (!PartEntry->IsPartitioned)
+            continue;
+        ASSERT(PartEntry->PartitionType != PARTITION_ENTRY_UNUSED);
 
-        if (PartEntry->IsPartitioned)
+        /* See comment above */
+        if (PartEntry->New)
         {
-            ASSERT(PartEntry->PartitionType != PARTITION_ENTRY_UNUSED);
-            PartEntry->New = FALSE;
             PartitionInfo = &DiskEntry->LayoutBuffer->PartitionEntry[PartEntry->PartitionIndex];
             PartEntry->PartitionNumber = PartitionInfo->PartitionNumber;
+            InitPartitionDeviceName(PartEntry);
         }
+        PartEntry->New = FALSE;
     }
 
     //
@@ -3633,6 +3763,7 @@ WritePartitionsToDisk(
     NTSTATUS Status;
     PLIST_ENTRY Entry;
     PDISKENTRY DiskEntry;
+    PVOLENTRY Volume;
 
     if (!List)
         return TRUE;
@@ -3641,7 +3772,6 @@ WritePartitionsToDisk(
     Status = STATUS_SUCCESS;
     while (!IsListEmpty(&List->PendingUnmountVolumesList))
     {
-        PVOLENTRY Volume;
         NTSTATUS UnmountStatus;
         Entry = RemoveHeadList(&List->PendingUnmountVolumesList);
         Volume = CONTAINING_RECORD(Entry, VOLENTRY, ListEntry);
@@ -3675,6 +3805,18 @@ WritePartitionsToDisk(
                         DiskEntry->DiskNumber, Status);
             }
         }
+    }
+
+    /* The PARTMGR should have notified the MOUNTMGR that new volumes
+     * associated with the new partitions had to be created */
+
+    /* Assign valid device names to new volumes */
+    for (Entry = List->VolumesList.Flink;
+         Entry != &List->VolumesList;
+         Entry = Entry->Flink)
+    {
+        Volume = CONTAINING_RECORD(Entry, VOLENTRY, ListEntry);
+        InitVolumeDeviceName(Volume, NULL);
     }
 
     return TRUE;
