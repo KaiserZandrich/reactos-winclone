@@ -189,6 +189,26 @@ BEGIN
     IDS_BOOTLOADER_VBRONLY "Hanya VBR"
 END
 
+/* Progress Strings */
+
+STRINGTABLE
+BEGIN
+    IDS_FORMATTING_PROGRESS1 "Formatting volume %c: (%s) in %s..."
+    IDS_FORMATTING_PROGRESS2 "Formatting volume %s in %s..."
+
+    IDS_CHECKING_PROGRESS1 "Checking volume %c: (%s)..."
+    IDS_CHECKING_PROGRESS2 "Checking volume %s..."
+
+    IDS_COPYING  "Copying %s"
+    IDS_MOVING   "Moving %s to %s"
+    IDS_RENAMING "Renaming %s to %s"
+    IDS_DELETING "Deleting %s"
+
+    IDS_PREPARE_PARTITIONS "Preparing partitions..."
+    IDS_PREPARE_FILES "Preparing the list of files to be copied, please wait..."
+    IDS_COPYING_FILES "Copying the files..."
+END
+
 /* Error Strings */
 
 STRINGTABLE
@@ -198,8 +218,35 @@ BEGIN
 alphanumericals (a-z, A-Z, 0-9), and\n . \\ - _\n\
 Spaces are not allowed."
 
-// ERROR_DIRECTORY_NAME
     IDS_ERROR_DIRECTORY_NAME_TITLE "Invalid installation path"
     IDS_ERROR_DIRECTORY_NAME "The ReactOS installation path must follow the DOS 8.3 naming scheme, \
 and only contain letters, digits, dashes and periods. Spaces are not allowed."
+
+    IDS_ERROR_CREATE_PARTITION_TITLE "Create partition"
+    IDS_ERROR_CREATE_PARTITION "Failed to create a new partition."
+
+    IDS_WARN_DELETE_PARTITION_TITLE "Delete partition?"
+    IDS_WARN_DELETE_PARTITION "Are you sure you want to delete the selected partition?"
+    IDS_WARN_DELETE_MBR_EXTENDED_PARTITION "Are you sure you want to delete the selected extended partition and ALL the logical partitions it contains?"
+
+    IDS_ERROR_WRITE_PTABLE "Setup failed to write partition tables."
+
+    IDS_ERROR_SYSTEM_PARTITION "The ReactOS Setup could not find a supported system partition\n\
+on your system or could not create a new one. Without such partition\n\
+the Setup program cannot install ReactOS.\
+\nClick on OK to return to the partition selection list."
+
+    IDS_ERROR_FORMAT_UNRECOGNIZED_VOLUME "Unrecognized volume while attempting to format the partition."
+
+    IDS_ERROR_COULD_NOT_FORMAT "Setup is currently unable to format a partition in %s.\n\
+\nClick on OK to continue Setup.\
+\nClick on CANCEL to quit Setup."
+
+    IDS_ERROR_FORMATTING_PARTITION "Setup is unable to format the partition:\n %s\n"
+
+    IDS_ERROR_COULD_NOT_CHECK "Setup is currently unable to check a partition formatted in %s.\n\
+\nClick on OK to continue Setup.\
+\nClick on CANCEL to quit Setup."
+
+    IDS_ERROR_CHECKING_PARTITION "ChkDsk detected some disk errors.\n(Status 0x%08lx)."
 END

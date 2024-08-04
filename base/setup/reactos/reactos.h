@@ -136,9 +136,6 @@ typedef struct _SETUPDATA
     HANDLE hHaltInstallEvent;
     BOOL bStopInstall;
 
-    TCHAR szAbortMessage[512];
-    TCHAR szAbortTitle[64];
-
     NT_WIN32_PATH_MAPPING_LIST MappingList;
 
     USETUP_DATA USetupData;

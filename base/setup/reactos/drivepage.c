@@ -1464,10 +1464,9 @@ DriveDlgProc(
                         if (!Success)
                         {
                             // FIXME: Just show an error? Respawn the creation dialog?
-                            MessageBoxW(GetParent(hwndDlg),
-                                        L"Failed to create a new partition.",
-                                        L"Create partition",
-                                        MB_OK | MB_ICONERROR);
+                            DisplayError(GetParent(hwndDlg),
+                                         IDS_ERROR_CREATE_PARTITION_TITLE,
+                                         IDS_ERROR_CREATE_PARTITION);
                             break;
                         }
 
@@ -1523,7 +1522,7 @@ DriveDlgProc(
                     PPARTITEM PartItem;
                     PPARTENTRY PartEntry;
                     HTLITEM hItem;
-                    LPCWSTR pszWarnMsg;
+                    UINT uIDWarnMsg;
 
                     hList = GetDlgItem(hwndDlg, IDC_PARTITION);
 
@@ -1542,18 +1541,18 @@ DriveDlgProc(
                     if (PartEntry == PartEntry->DiskEntry->ExtendedPartition)
                     {
                         /* MBR-extended (container) partition: show different message */
-                        pszWarnMsg = L"Are you sure you want to delete the selected extended partition and ALL the logical partitions it contains?";
+                        uIDWarnMsg = IDS_WARN_DELETE_MBR_EXTENDED_PARTITION;
                     }
                     else
                     {
-                        pszWarnMsg = L"Are you sure you want to delete the selected partition?";
+                        uIDWarnMsg = IDS_WARN_DELETE_PARTITION;
                     }
 
                     /* If the user really wants to delete the partition... */
-                    if (MessageBoxW(GetParent(hwndDlg),
-                                    pszWarnMsg,
-                                    L"Delete partition?",
-                                    MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING) == IDYES)
+                    if (DisplayMessage(GetParent(hwndDlg),
+                                       MB_YESNO | MB_DEFBUTTON2 | MB_ICONWARNING,
+                                       MAKEINTRESOURCEW(IDS_WARN_DELETE_PARTITION_TITLE),
+                                       MAKEINTRESOURCEW(uIDWarnMsg)) == IDYES)
                     {
                         PPARTENTRY PrevPart, NextPart;
                         BOOLEAN PrevIsPartitioned, NextIsPartitioned;
@@ -1635,6 +1634,7 @@ DriveDlgProc(
                             // TreeList_SetFocusItem(hList, 1, 1);
                             TreeList_SelectItem(hList, hItem);
                         }
+                        // TODO: Show error if partition couldn't be deleted?
                     }
 
                     break;
@@ -1757,10 +1757,10 @@ DisableWizNext:
 
                 case PSN_QUERYCANCEL:
                 {
-                    if (MessageBoxW(GetParent(hwndDlg),
-                                    pSetupData->szAbortMessage,
-                                    pSetupData->szAbortTitle,
-                                    MB_YESNO | MB_ICONQUESTION) == IDYES)
+                    if (DisplayMessage(GetParent(hwndDlg),
+                                       MB_YESNO | MB_ICONQUESTION,
+                                       MAKEINTRESOURCEW(IDS_ABORTSETUP2),
+                                       MAKEINTRESOURCEW(IDS_ABORTSETUP)) == IDYES)
                     {
                         /* Go to the Terminate page */
                         PropSheet_SetCurSelByID(GetParent(hwndDlg), IDD_RESTARTPAGE);
