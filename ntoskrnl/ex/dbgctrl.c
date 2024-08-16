@@ -209,7 +209,6 @@ NtSystemDebugControl(SYSDBG_COMMAND ControlCode,
         case SysDbgWriteBusData:
         case SysDbgCheckLowMemory:
         case SysDbgGetTriageDump:
-            return STATUS_NOT_IMPLEMENTED;
         case SysDbgBreakPoint:
         case SysDbgEnableKernelDebugger:
         case SysDbgDisableKernelDebugger:
