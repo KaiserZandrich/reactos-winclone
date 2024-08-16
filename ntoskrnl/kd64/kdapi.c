@@ -2189,6 +2189,9 @@ KdSystemDebugControl(
     _Inout_ PULONG ReturnLength,
     _In_ KPROCESSOR_MODE PreviousMode)
 {
+    NTSTATUS Status;
+    ULONG Length = 0;
+
     /* Handle some internal commands */
     switch ((ULONG)Command)
     {
@@ -2252,9 +2255,46 @@ KdSystemDebugControl(
             break;
     }
 
-    /* Local kernel debugging is not yet supported */
-    DbgPrint("KdSystemDebugControl is unimplemented!\n");
-    return STATUS_NOT_IMPLEMENTED;
+    _SEH2_TRY
+    {
+        if (PreviousMode != KernelMode)
+        {
+            if (InputBufferLength)
+                ProbeForRead(InputBuffer, InputBufferLength, sizeof(ULONG));
+            if (OutputBufferLength)
+                ProbeForWrite(OutputBuffer, OutputBufferLength, sizeof(ULONG));
+            if (ReturnLength)
+                ProbeForWriteUlong(ReturnLength);
+        }
+
+        switch (Command)
+        {
+            case SysDbgQueryVersion:
+                if (OutputBufferLength != sizeof(DBGKD_GET_VERSION64))
+                    Status = STATUS_INFO_LENGTH_MISMATCH;
+                else
+                {
+                    KdpSysGetVersion((PDBGKD_GET_VERSION64)OutputBuffer);
+                    Status = STATUS_SUCCESS;
+                }
+                break;
+
+            default:
+                DbgPrint("KdSystemDebugControl %d is UNIMPLEMENTED!\n", Command);
+                Status = STATUS_NOT_IMPLEMENTED;
+                break;
+        }
+
+        if (ReturnLength)
+            *ReturnLength = Length;
+    }
+    _SEH2_EXCEPT(EXCEPTION_EXECUTE_HANDLER)
+    {
+        _SEH2_YIELD(return _SEH2_GetExceptionCode());
+    }
+    _SEH2_END;
+
+    return Status;
 }
 
 /*
