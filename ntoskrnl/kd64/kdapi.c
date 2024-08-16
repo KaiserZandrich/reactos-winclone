@@ -2279,6 +2279,35 @@ KdSystemDebugControl(
                 }
                 break;
 
+            case SysDbgReadVirtual:
+            case SysDbgWriteVirtual:
+                if (InputBufferLength != sizeof(SYSDBG_VIRTUAL))
+                    Status = STATUS_INFO_LENGTH_MISMATCH;
+                else
+                {
+                    SYSDBG_VIRTUAL Request = *(PSYSDBG_VIRTUAL)InputBuffer;
+                    PVOID LockedBuffer;
+                    PMDL LockVariable;
+
+                    Status = ExLockUserBuffer(Request.Buffer,
+                                              Request.Request,
+                                              PreviousMode,
+                                              Command == SysDbgReadVirtual ? IoWriteAccess : IoReadAccess,
+                                              &LockedBuffer,
+                                              &LockVariable);
+                    if (NT_SUCCESS(Status))
+                    {
+                        Status = KdpCopyMemoryChunks((ULONG64)(ULONG_PTR)Request.Address,
+                                                     Request.Buffer,
+                                                     Request.Request,
+                                                     0,
+                                                     Command == SysDbgReadVirtual ? 0 : MMDBG_COPY_WRITE,
+                                                     &Length);
+                        ExUnlockUserBuffer(LockVariable);
+                    }
+                }
+                break;
+
             default:
                 DbgPrint("KdSystemDebugControl %d is UNIMPLEMENTED!\n", Command);
                 Status = STATUS_NOT_IMPLEMENTED;
