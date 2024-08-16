@@ -2308,6 +2308,33 @@ KdSystemDebugControl(
                 }
                 break;
 
+            case SysDbgReadControlSpace:
+                if (InputBufferLength != sizeof(SYSDBG_CONTROL_SPACE))
+                    Status = STATUS_INFO_LENGTH_MISMATCH;
+                else
+                {
+                    SYSDBG_CONTROL_SPACE Request = *(PSYSDBG_CONTROL_SPACE)InputBuffer;
+                    PVOID LockedBuffer;
+                    PMDL LockVariable;
+
+                    Status = ExLockUserBuffer(Request.Buffer,
+                                              Request.Request,
+                                              PreviousMode,
+                                              IoWriteAccess,
+                                              &LockedBuffer,
+                                              &LockVariable);
+                    if (NT_SUCCESS(Status))
+                    {
+                        Status = KdpSysReadControlSpace(Request.Processor,
+                                                        Request.Address,
+                                                        LockedBuffer,
+                                                        Request.Request,
+                                                        &Length);
+                        ExUnlockUserBuffer(LockVariable);
+                    }
+                }
+                break;
+
             default:
                 DbgPrint("KdSystemDebugControl %d is UNIMPLEMENTED!\n", Command);
                 Status = STATUS_NOT_IMPLEMENTED;
