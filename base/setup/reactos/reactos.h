@@ -48,6 +48,9 @@
 #define EnableDlgItem(hDlg, nID, bEnable)   \
     EnableWindow(GetDlgItem((hDlg), (nID)), (bEnable))
 
+#define ShowDlgItem(hDlg, nID, nCmdShow)   \
+    ShowWindow(GetDlgItem((hDlg), (nID)), (nCmdShow))
+
 /* These are public names and values determined from MFC, and compatible with Windows */
 // Property Sheet control id's (determined with Spy++)
 #define IDC_TAB_CONTROL                 0x3020

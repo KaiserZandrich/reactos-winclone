@@ -38,9 +38,10 @@
 #define IDC_PARTITION        2041
 #define IDC_INITDISK         2042
 #define IDC_PARTCREATE       2043
-#define IDC_PARTDELETE       2044
-#define IDC_DEVICEDRIVER     2045
-#define IDC_PARTMOREOPTS     2046
+#define IDC_PARTFORMAT       2044
+#define IDC_PARTDELETE       2045
+#define IDC_DEVICEDRIVER     2046
+#define IDC_PARTMOREOPTS     2047
 
 #define IDD_SUMMARYPAGE      2050
 #define IDC_INSTALLTYPE      2051
@@ -75,6 +76,8 @@
 #define IDC_FSTYPE           2096
 #define IDC_CHECK_QUICKFMT   2097
 
+#define IDD_FORMAT 2100
+
 
 /* Strings */
 #define IDS_TYPETITLE        5007
@@ -93,6 +96,7 @@
 #define IDS_SUMMARYSUBTITLE  5051
 #define IDS_NO_TXTSETUP_SIF  5053
 #define IDS_CAPTION          5054
+#define IDS_VOLUME_NOFORMAT  5060
 
 #define IDS_INSTALLATION_NAME   5100
 #define IDS_INSTALLATION_PATH   5101

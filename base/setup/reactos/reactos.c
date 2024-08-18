@@ -1676,7 +1676,7 @@ PropSheet_SetCloseCancel(
     _In_ BOOL Enable)
 {
     EnableDlgItem(hWndWiz, IDCANCEL, Enable);
-    // ShowWindow(GetDlgItem(hWndWiz, IDCANCEL), Enable ? SW_SHOW : SW_HIDE);
+    // ShowDlgItem(hWndWiz, IDCANCEL, Enable ? SW_SHOW : SW_HIDE);
     EnableMenuItem(GetSystemMenu(hWndWiz, FALSE),
                    SC_CLOSE,
                    MF_BYCOMMAND | (Enable ? MF_ENABLED : MF_GRAYED));
@@ -2065,7 +2065,7 @@ RestartDlgProc(
                 case PSN_SETACTIVE:
                 {
                     /* Only "Finish" for closing the wizard */
-                    ShowWindow(GetDlgItem(GetParent(hwndDlg), IDCANCEL), SW_HIDE);
+                    ShowDlgItem(GetParent(hwndDlg), IDCANCEL, SW_HIDE);
                     PropSheet_SetWizButtons(GetParent(hwndDlg), PSWIZB_FINISH);
 
                     /* Set up the reboot progress bar */
